@@ -5,10 +5,33 @@
 <div class="detail-header app-card">
     <div>
         <a class="back-link" href="{{ url_for('assets.index') }}"><i class="bi bi-arrow-left"></i> Back to assets</a>
-        <h2>{{ asset.asset_tag }} · {{ asset.model }}</h2>
-        <p>{{ asset.category }} · Serial {{ asset.serial_number }}</p>
+        <h2>{{ asset.asset_tag }} &middot; {{ asset.model }}</h2>
+        <p>{{ asset.category }} &middot; Serial {{ asset.serial_number }}</p>
+        {% if asset.retirement_reason %}
+        <p class="detail-note">Retirement reason: {{ asset.retirement_reason }}</p>
+        {% endif %}
     </div>
-    <span class="status-pill status-{{ asset.status }}">{{ statuses[asset.status] }}</span>
+    <div class="detail-actions">
+        <span class="status-pill status-{{ asset.status }}">{{ statuses[asset.status] }}</span>
+        {% if asset.status != 'retired' %}
+        <div class="btn-group-wrap">
+            <button class="btn btn-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#assignModal">
+                <i class="bi bi-arrow-repeat"></i>
+                {{ 'Reassign' if current_assignment else 'Assign' }}
+            </button>
+            {% if asset.status != 'in_repair' %}
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#repairModal">
+                <i class="bi bi-tools"></i>
+                Send for Repair
+            </button>
+            {% endif %}
+            <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#retireModal">
+                <i class="bi bi-box-seam"></i>
+                Retire
+            </button>
+        </div>
+        {% endif %}
+    </div>
 </div>
 
 <div class="row g-4">
@@ -23,7 +46,15 @@
             <h3>{{ current_assignment.employee_name or current_assignment.department_name }}</h3>
             <p class="text-muted mb-0">Since {{ current_assignment.assigned_date }}</p>
             {% else %}
-            <p class="text-muted mb-0">No active assignment. This asset is currently unassigned.</p>
+            <p class="text-muted mb-0">
+                {% if asset.status == 'in_repair' %}
+                No active assignment while the asset is in repair.
+                {% elif asset.status == 'retired' %}
+                This asset is retired and no longer assignable.
+                {% else %}
+                No active assignment. This asset is currently unassigned.
+                {% endif %}
+            </p>
             {% endif %}
         </section>
     </div>
@@ -41,8 +72,8 @@
                         <strong>{{ row.employee_name or row.department_name }}</strong>
                         <p>
                             {{ row.assigned_date }}
-                            {% if row.returned_date %}to {{ row.returned_date }}{% else %}to Present{% endif %}
-                            {% if row.assigned_by_name %}· by {{ row.assigned_by_name }}{% endif %}
+                            {% if row.returned_date %} to {{ row.returned_date }}{% else %} to Present{% endif %}
+                            {% if row.assigned_by_name %} &middot; by {{ row.assigned_by_name }}{% endif %}
                         </p>
                         {% if row.note %}<p class="timeline-note">{{ row.note }}</p>{% endif %}
                     </div>
@@ -68,6 +99,7 @@
                             <th>Sent Out</th>
                             <th>Returned</th>
                             <th class="text-end">Cost</th>
+                            <th class="text-end">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -78,14 +110,128 @@
                             <td>{{ row.sent_out_date }}</td>
                             <td>{{ row.returned_date or 'Open' }}</td>
                             <td class="text-end">{{ row.cost or '-' }}</td>
+                            <td class="text-end">
+                                {% if row.returned_date is none %}
+                                <form method="post" action="{{ url_for('assets.return_from_repair', asset_id=asset.id, log_id=row.id) }}">
+                                    <button class="btn btn-outline-secondary btn-sm" type="submit">
+                                        <i class="bi bi-check2-circle"></i>
+                                        Mark Returned
+                                    </button>
+                                </form>
+                                {% else %}
+                                <span class="text-muted">Closed</span>
+                                {% endif %}
+                            </td>
                         </tr>
                         {% else %}
-                        <tr><td colspan="5" class="text-muted">No maintenance logs yet.</td></tr>
+                        <tr><td colspan="6" class="text-muted">No maintenance logs yet.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
         </section>
+    </div>
+</div>
+
+<div class="modal fade" id="assignModal" tabindex="-1" aria-labelledby="assignModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <form class="modal-content" method="post" action="{{ url_for('assets.assign', asset_id=asset.id) }}">
+            <div class="modal-header">
+                <h3 class="modal-title fs-5" id="assignModalLabel">{{ 'Reassign Asset' if current_assignment else 'Assign Asset' }}</h3>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label" for="employee_id">Employee</label>
+                        <select class="form-select" id="employee_id" name="employee_id">
+                            <option value="">Select employee</option>
+                            {% for employee in active_employees %}
+                            <option value="{{ employee.id }}">{{ employee.name }}{% if employee.department_name %} &middot; {{ employee.department_name }}{% endif %}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="department_id">Department</label>
+                        <select class="form-select" id="department_id" name="department_id">
+                            <option value="">Select department</option>
+                            {% for department in active_departments %}
+                            <option value="{{ department.id }}">{{ department.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" for="assignment_note">Note</label>
+                        <textarea class="form-control" id="assignment_note" name="note" rows="3" placeholder="Optional note for the custody trail"></textarea>
+                    </div>
+                </div>
+                <p class="text-muted mt-3 mb-0">Choose one holder so the assignment trail stays audit-friendly.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check2"></i>
+                    Save Assignment
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal fade" id="repairModal" tabindex="-1" aria-labelledby="repairModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <form class="modal-content" method="post" action="{{ url_for('assets.repair', asset_id=asset.id) }}">
+            <div class="modal-header">
+                <h3 class="modal-title fs-5" id="repairModalLabel">Send for Repair</h3>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label" for="issue_description">Issue Description</label>
+                        <textarea class="form-control" id="issue_description" name="issue_description" rows="3" required></textarea>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="vendor">Vendor</label>
+                        <input class="form-control" id="vendor" name="vendor" placeholder="Optional repair vendor">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="cost">Cost</label>
+                        <input class="form-control" id="cost" name="cost" type="number" min="0" step="0.01" placeholder="Optional cost">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-send"></i>
+                    Start Repair
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal fade" id="retireModal" tabindex="-1" aria-labelledby="retireModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <form class="modal-content" method="post" action="{{ url_for('assets.retire', asset_id=asset.id) }}">
+            <div class="modal-header">
+                <h3 class="modal-title fs-5" id="retireModalLabel">Retire Asset</h3>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label" for="retirement_reason">Retirement Reason</label>
+                <textarea class="form-control" id="retirement_reason" name="retirement_reason" rows="3" required></textarea>
+                <p class="text-muted mt-3 mb-0">Retired assets stay in history, but they can no longer be assigned.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-danger">
+                    <i class="bi bi-x-circle"></i>
+                    Retire Asset
+                </button>
+            </div>
+        </form>
     </div>
 </div>
 {% endblock %}

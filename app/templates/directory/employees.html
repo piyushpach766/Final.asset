@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Employees | Asset Management{% endblock %}
+{% block page_title %}Employees{% endblock %}
+{% block content %}
+<section class="app-card">
+    <div class="card-toolbar">
+        <div class="card-title-group">
+            <i class="bi bi-people"></i>
+            <h2>Employee Directory</h2>
+        </div>
+        <button class="btn btn-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#employeeModal">
+            <i class="bi bi-plus-lg"></i>
+            New Employee
+        </button>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle nowrap" id="employeesTable" style="width:100%">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Department</th>
+                    <th>Contact</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for employee in employees %}
+                <tr class="{{ 'table-light' if not employee.is_active }}">
+                    <td>{{ employee.name }}</td>
+                    <td>{{ employee.department_name or '-' }}</td>
+                    <td>{{ employee.contact or '-' }}</td>
+                    <td>
+                        <span class="status-pill {{ 'status-in_use' if employee.is_active else 'status-retired' }}">
+                            {{ 'Active' if employee.is_active else 'Inactive' }}
+                        </span>
+                    </td>
+                    <td>{{ employee.created_at }}</td>
+                    <td class="text-end">
+                        <button
+                            class="btn btn-outline-secondary btn-sm edit-employee"
+                            type="button"
+                            data-bs-toggle="modal"
+                            data-bs-target="#employeeModal"
+                            data-id="{{ employee.id }}"
+                            data-name="{{ employee.name }}"
+                            data-department-id="{{ employee.department_id or '' }}"
+                            data-contact="{{ employee.contact or '' }}"
+                            data-is-active="{{ employee.is_active }}"
+                        >
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        {% if employee.is_active %}
+                        <form class="d-inline" method="post" action="{{ url_for('directory.delete_employee', employee_id=employee.id) }}" data-confirm="Archive this employee?">
+                            <button class="btn btn-outline-danger btn-sm" type="submit">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<div class="modal fade" id="employeeModal" tabindex="-1" aria-labelledby="employeeModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <form class="modal-content" method="post" action="{{ url_for('directory.save_employee') }}">
+            <div class="modal-header">
+                <h3 class="modal-title fs-5" id="employeeModalLabel">New Employee</h3>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" name="employee_id" id="employee_id">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label" for="employee_name">Name</label>
+                        <input class="form-control" id="employee_name" name="name" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="employee_department_id">Department</label>
+                        <select class="form-select" id="employee_department_id" name="department_id">
+                            <option value="">Select department</option>
+                            {% for department in departments %}
+                            <option value="{{ department.id }}">{{ department.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="employee_contact">Contact</label>
+                        <input class="form-control" id="employee_contact" name="contact" type="email" placeholder="name@example.com">
+                    </div>
+                    <div class="col-md-6 d-flex align-items-end">
+                        <div class="form-check">
+                            <input class="form-check-input" id="employee_is_active" name="is_active" type="checkbox" checked>
+                            <label class="form-check-label" for="employee_is_active">Active</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check2"></i>
+                    Save Employee
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
