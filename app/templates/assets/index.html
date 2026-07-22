@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Assets | Asset Management{% endblock %}
+{% block page_title %}Assets{% endblock %}
+{% block content %}
+<section class="app-card">
+    <div class="card-toolbar">
+        <div class="card-title-group">
+            <i class="bi bi-pc-display"></i>
+            <h2>Asset List</h2>
+        </div>
+        <form class="toolbar-actions" method="get" id="assetFilterForm">
+            <select class="form-select form-select-sm" name="status" aria-label="Filter by status">
+                <option value="">All statuses</option>
+                {% for key, label in statuses.items() %}
+                <option value="{{ key }}" {{ 'selected' if selected_status == key }}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <select class="form-select form-select-sm" name="category" aria-label="Filter by category">
+                <option value="">All categories</option>
+                {% for row in categories %}
+                <option value="{{ row.category }}" {{ 'selected' if selected_category == row.category }}>{{ row.category }}</option>
+                {% endfor %}
+            </select>
+            <button class="btn btn-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#assetModal">
+                <i class="bi bi-plus-lg"></i>
+                New Asset
+            </button>
+        </form>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle nowrap" id="assetsTable" style="width:100%">
+            <thead>
+                <tr>
+                    <th>Tag</th>
+                    <th>Serial</th>
+                    <th>Category</th>
+                    <th>Model</th>
+                    <th>Status</th>
+                    <th>Purchase Date</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for asset in assets %}
+                <tr>
+                    <td><a href="{{ url_for('assets.detail', asset_id=asset.id) }}">{{ asset.asset_tag }}</a></td>
+                    <td>{{ asset.serial_number }}</td>
+                    <td>{{ asset.category }}</td>
+                    <td>{{ asset.model }}</td>
+                    <td><span class="status-pill status-{{ asset.status }}">{{ statuses[asset.status] }}</span></td>
+                    <td>{{ asset.purchase_date or '-' }}</td>
+                    <td class="text-end">
+                        <button
+                            class="btn btn-outline-secondary btn-sm edit-asset"
+                            type="button"
+                            data-bs-toggle="modal"
+                            data-bs-target="#assetModal"
+                            data-id="{{ asset.id }}"
+                            data-asset-tag="{{ asset.asset_tag }}"
+                            data-serial-number="{{ asset.serial_number }}"
+                            data-category="{{ asset.category }}"
+                            data-model="{{ asset.model }}"
+                            data-purchase-date="{{ asset.purchase_date or '' }}"
+                            data-purchase-value="{{ asset.purchase_value or '' }}"
+                            data-status="{{ asset.status }}"
+                        >
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <form class="d-inline" method="post" action="{{ url_for('assets.delete', asset_id=asset.id) }}" data-confirm="Delete this asset? It will be soft-deleted.">
+                            <button class="btn btn-outline-danger btn-sm" type="submit">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<div class="modal fade" id="assetModal" tabindex="-1" aria-labelledby="assetModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <form class="modal-content" method="post" action="{{ url_for('assets.save') }}">
+            <div class="modal-header">
+                <h3 class="modal-title fs-5" id="assetModalLabel">New Asset</h3>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" name="asset_id" id="asset_id">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label" for="asset_tag">Asset Tag</label>
+                        <input class="form-control" id="asset_tag" name="asset_tag" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="serial_number">Serial Number</label>
+                        <input class="form-control" id="serial_number" name="serial_number" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="category">Category</label>
+                        <input class="form-control" id="category" name="category" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="model">Model</label>
+                        <input class="form-control" id="model" name="model" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label" for="purchase_date">Purchase Date</label>
+                        <input class="form-control" id="purchase_date" name="purchase_date" type="date">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label" for="purchase_value">Purchase Value</label>
+                        <input class="form-control" id="purchase_value" name="purchase_value" type="number" min="0" step="0.01">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label" for="status">Status</label>
+                        <select class="form-select" id="status" name="status">
+                            {% for key, label in statuses.items() %}
+                            <option value="{{ key }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check2"></i>
+                    Save Asset
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

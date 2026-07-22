@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Login | Asset Management{% endblock %}
+{% block auth_content %}
+<main class="auth-page">
+    <section class="auth-panel">
+        <div class="auth-mark">
+            <i class="bi bi-box-seam"></i>
+        </div>
+        <h1>Final Asset</h1>
+        <p>Sign in to manage asset custody, repair status, and reporting.</p>
+        {% for category, message in get_flashed_messages(with_categories=true) %}
+        <div class="alert alert-{{ category }}" role="alert">{{ message }}</div>
+        {% endfor %}
+        <form method="post" class="vstack gap-3">
+            <div>
+                <label class="form-label" for="email">Email</label>
+                <input class="form-control" id="email" name="email" type="email" value="admin@example.com" required>
+            </div>
+            <div>
+                <label class="form-label" for="password">Password</label>
+                <input class="form-control" id="password" name="password" type="password" value="admin123" required>
+            </div>
+            <button class="btn btn-primary w-100" type="submit">
+                <i class="bi bi-box-arrow-in-right"></i>
+                Login
+            </button>
+        </form>
+    </section>
+</main>
+{% endblock %}
