@@ -1,12 +1,37 @@
 from sqlite3 import IntegrityError
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, flash, g, redirect, render_template, request, url_for
 
 from .auth import login_required
 from .db import get_db
-from .status_rules import VALID_STATUSES, assert_transition_allowed, normalize_status
+from .status_rules import VALID_STATUSES, assert_assignable, assert_transition_allowed, normalize_status
 
 bp = Blueprint("assets", __name__, url_prefix="/assets")
+
+
+def _get_asset_or_none(db, asset_id):
+    return db.execute("SELECT * FROM assets WHERE id = ? AND is_active = 1", (asset_id,)).fetchone()
+
+
+def _get_active_assignment(db, asset_id):
+    return db.execute(
+        """
+        SELECT *
+        FROM asset_assignments
+        WHERE asset_id = ? AND returned_date IS NULL
+        ORDER BY assigned_date DESC, id DESC
+        LIMIT 1
+        """,
+        (asset_id,),
+    ).fetchone()
+
+
+def _resolve_assignment_target(form):
+    employee_id = form.get("employee_id") or None
+    department_id = form.get("department_id") or None
+    if bool(employee_id) == bool(department_id):
+        raise ValueError("Choose exactly one employee or department for the assignment.")
+    return employee_id, department_id
 
 
 @bp.route("/")
@@ -91,14 +116,20 @@ def save():
     except ValueError as error:
         flash(str(error), "danger")
 
-    return redirect(url_for("assets.index", status=request.args.get("status", ""), category=request.args.get("category", "")))
+    return redirect(
+        url_for(
+            "assets.index",
+            status=request.args.get("status", ""),
+            category=request.args.get("category", ""),
+        )
+    )
 
 
 @bp.route("/<int:asset_id>")
 @login_required
 def detail(asset_id):
     db = get_db()
-    asset = db.execute("SELECT * FROM assets WHERE id = ? AND is_active = 1", (asset_id,)).fetchone()
+    asset = _get_asset_or_none(db, asset_id)
     if asset is None:
         flash("Asset not found.", "danger")
         return redirect(url_for("assets.index"))
@@ -125,14 +156,218 @@ def detail(asset_id):
         (asset_id,),
     ).fetchall()
     current_assignment = next((row for row in assignments if row["returned_date"] is None), None)
+    active_employees = db.execute(
+        """
+        SELECT e.id, e.name, d.name AS department_name
+        FROM employees e
+        LEFT JOIN departments d ON d.id = e.department_id
+        WHERE e.is_active = 1
+        ORDER BY e.name
+        """
+    ).fetchall()
+    active_departments = db.execute(
+        "SELECT id, name FROM departments WHERE is_active = 1 ORDER BY name"
+    ).fetchall()
+    open_repair_log = next((row for row in maintenance_logs if row["returned_date"] is None), None)
     return render_template(
         "assets/detail.html",
         asset=asset,
         assignments=assignments,
         current_assignment=current_assignment,
         maintenance_logs=maintenance_logs,
+        open_repair_log=open_repair_log,
+        active_employees=active_employees,
+        active_departments=active_departments,
         statuses=VALID_STATUSES,
     )
+
+
+@bp.route("/<int:asset_id>/assign", methods=("POST",))
+@login_required
+def assign(asset_id):
+    db = get_db()
+    asset = _get_asset_or_none(db, asset_id)
+    if asset is None:
+        flash("Asset not found.", "danger")
+        return redirect(url_for("assets.index"))
+
+    try:
+        assert_assignable(asset["status"])
+        employee_id, department_id = _resolve_assignment_target(request.form)
+        note = request.form.get("note", "").strip() or None
+        with db:
+            active_assignment = _get_active_assignment(db, asset_id)
+            if active_assignment is not None:
+                db.execute(
+                    "UPDATE asset_assignments SET returned_date = CURRENT_DATE WHERE id = ?",
+                    (active_assignment["id"],),
+                )
+            db.execute(
+                """
+                INSERT INTO asset_assignments
+                    (asset_id, employee_id, department_id, assigned_date, returned_date, assigned_by_user_id, note)
+                VALUES (?, ?, ?, CURRENT_DATE, NULL, ?, ?)
+                """,
+                (asset_id, employee_id, department_id, g.user["id"], note),
+            )
+            db.execute(
+                """
+                UPDATE assets
+                SET status = 'in_use', updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (asset_id,),
+            )
+        flash("Assignment saved successfully.", "success")
+    except ValueError as error:
+        flash(str(error), "danger")
+
+    return redirect(url_for("assets.detail", asset_id=asset_id))
+
+
+@bp.route("/<int:asset_id>/repair", methods=("POST",))
+@login_required
+def repair(asset_id):
+    db = get_db()
+    asset = _get_asset_or_none(db, asset_id)
+    if asset is None:
+        flash("Asset not found.", "danger")
+        return redirect(url_for("assets.index"))
+
+    try:
+        if asset["status"] == "retired":
+            raise ValueError("Retired assets cannot be sent for repair.")
+        if asset["status"] == "in_repair":
+            raise ValueError("This asset is already in repair.")
+
+        issue_description = request.form["issue_description"].strip()
+        vendor = request.form.get("vendor", "").strip() or None
+        cost = request.form.get("cost") or None
+
+        with db:
+            active_assignment = _get_active_assignment(db, asset_id)
+            if active_assignment is not None:
+                db.execute(
+                    "UPDATE asset_assignments SET returned_date = CURRENT_DATE WHERE id = ?",
+                    (active_assignment["id"],),
+                )
+            db.execute(
+                """
+                INSERT INTO maintenance_logs
+                    (asset_id, issue_description, sent_out_date, returned_date, vendor, cost)
+                VALUES (?, ?, CURRENT_DATE, NULL, ?, ?)
+                """,
+                (asset_id, issue_description, vendor, cost),
+            )
+            db.execute(
+                """
+                UPDATE assets
+                SET status = 'in_repair', updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (asset_id,),
+            )
+        flash("Asset marked in repair.", "success")
+    except ValueError as error:
+        flash(str(error), "danger")
+
+    return redirect(url_for("assets.detail", asset_id=asset_id))
+
+
+@bp.route("/<int:asset_id>/maintenance/<int:log_id>/return", methods=("POST",))
+@login_required
+def return_from_repair(asset_id, log_id):
+    db = get_db()
+    asset = _get_asset_or_none(db, asset_id)
+    if asset is None:
+        flash("Asset not found.", "danger")
+        return redirect(url_for("assets.index"))
+
+    log = db.execute(
+        "SELECT * FROM maintenance_logs WHERE id = ? AND asset_id = ?",
+        (log_id, asset_id),
+    ).fetchone()
+    if log is None:
+        flash("Repair record not found.", "danger")
+        return redirect(url_for("assets.detail", asset_id=asset_id))
+    if log["returned_date"] is not None:
+        flash("Repair record is already closed.", "warning")
+        return redirect(url_for("assets.detail", asset_id=asset_id))
+
+    db.execute(
+        """
+        UPDATE maintenance_logs
+        SET returned_date = CURRENT_DATE
+        WHERE id = ?
+        """,
+        (log_id,),
+    )
+    db.execute(
+        """
+        UPDATE assets
+        SET status = 'storage', updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (asset_id,),
+    )
+    db.commit()
+    flash("Asset returned from repair.", "success")
+    return redirect(url_for("assets.detail", asset_id=asset_id))
+
+
+@bp.route("/<int:asset_id>/retire", methods=("POST",))
+@login_required
+def retire(asset_id):
+    db = get_db()
+    asset = _get_asset_or_none(db, asset_id)
+    if asset is None:
+        flash("Asset not found.", "danger")
+        return redirect(url_for("assets.index"))
+
+    try:
+        retirement_reason = request.form["retirement_reason"].strip()
+        if not retirement_reason:
+            raise ValueError("Retirement reason is required.")
+        if asset["status"] == "retired":
+            raise ValueError("This asset is already retired.")
+
+        with db:
+            active_assignment = _get_active_assignment(db, asset_id)
+            if active_assignment is not None:
+                db.execute(
+                    "UPDATE asset_assignments SET returned_date = CURRENT_DATE WHERE id = ?",
+                    (active_assignment["id"],),
+                )
+            open_repair_log = db.execute(
+                """
+                SELECT id
+                FROM maintenance_logs
+                WHERE asset_id = ? AND returned_date IS NULL
+                ORDER BY sent_out_date DESC, id DESC
+                LIMIT 1
+                """,
+                (asset_id,),
+            ).fetchone()
+            if open_repair_log is not None:
+                db.execute(
+                    "UPDATE maintenance_logs SET returned_date = CURRENT_DATE WHERE id = ?",
+                    (open_repair_log["id"],),
+                )
+            db.execute(
+                """
+                UPDATE assets
+                SET status = 'retired',
+                    retirement_reason = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (retirement_reason, asset_id),
+            )
+        flash("Asset retired successfully.", "success")
+    except ValueError as error:
+        flash(str(error), "danger")
+
+    return redirect(url_for("assets.detail", asset_id=asset_id))
 
 
 @bp.route("/<int:asset_id>/delete", methods=("POST",))

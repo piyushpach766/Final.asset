@@ -28,11 +28,11 @@
             </a>
             {% if g.user.role == 'admin' %}
             <span class="nav-section">Admin</span>
-            <a class="nav-link disabled" href="#" aria-disabled="true">
+            <a class="nav-link {{ 'active' if request.endpoint and request.endpoint.startswith('directory.employees') }}" href="{{ url_for('directory.employees') }}">
                 <i class="bi bi-people"></i>
                 <span>Employees</span>
             </a>
-            <a class="nav-link disabled" href="#" aria-disabled="true">
+            <a class="nav-link {{ 'active' if request.endpoint and request.endpoint.startswith('directory.departments') }}" href="{{ url_for('directory.departments') }}">
                 <i class="bi bi-building"></i>
                 <span>Departments</span>
             </a>

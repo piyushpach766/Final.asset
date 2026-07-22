@@ -297,6 +297,19 @@ a {
     margin-bottom: 24px;
 }
 
+.detail-actions {
+    display: grid;
+    justify-items: end;
+    gap: 12px;
+}
+
+.btn-group-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
 .detail-header h2 {
     margin: 8px 0 4px;
     font-size: 1.35rem;
@@ -306,6 +319,11 @@ a {
 .detail-header p,
 .detail-label {
     color: var(--color-muted);
+}
+
+.detail-note {
+    margin-top: 8px;
+    font-size: 0.92rem;
 }
 
 .detail-label {
@@ -408,6 +426,14 @@ body.sidebar-collapsed .nav-section {
     .detail-header {
         align-items: stretch;
         flex-direction: column;
+    }
+
+    .detail-actions {
+        justify-items: stretch;
+    }
+
+    .btn-group-wrap {
+        justify-content: stretch;
     }
 
     .toolbar-actions .form-select {
